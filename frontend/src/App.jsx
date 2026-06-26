@@ -1,122 +1,136 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+// root component — composes navbar, stats, filters, dish grid, detail modal,
+// onboarding modal, and footer into a cohesive dashboard layout.
 
-function App() {
-  const [count, setCount] = useState(0)
+import { useState, useMemo, useEffect } from "react";
+import { Toaster } from "react-hot-toast";
+import { useDishes } from "./hooks/useDishes";
+import { Navbar } from "./components/Navbar";
+import { Footer } from "./components/Footer";
+import { DishCard } from "./components/DishCard";
+import { DishDetailModal } from "./components/DishDetailModal";
+import { StatsBar } from "./components/StatsBar";
+import { FilterBar } from "./components/FilterBar";
+import { SkeletonCard } from "./components/SkeletonCard";
+import { EmptyState } from "./components/EmptyState";
+import { ErrorBanner } from "./components/ErrorBanner";
+import { OnboardingModal } from "./components/OnboardingModal";
+
+export default function App() {
+  const { dishes, loading, error, togglingIds, handleToggle, reload } = useDishes();
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [selectedDish, setSelectedDish] = useState(null);
+
+  // show onboarding on first visit
+  useEffect(() => {
+    const viewed = localStorage.getItem("dishboard_onboarding_viewed");
+    if (!viewed) setShowOnboarding(true);
+  }, []);
+
+  // keep selectedDish in sync with live data (if it gets toggled via socket while modal is open)
+  const liveDish = selectedDish
+    ? dishes.find((d) => d.dishId === selectedDish.dishId) || selectedDish
+    : null;
+
+  // filter + search
+  const visibleDishes = useMemo(() => {
+    return dishes.filter((d) => {
+      const matchesSearch = d.dishName.toLowerCase().includes(search.toLowerCase());
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "published" && d.isPublished) ||
+        (filter === "unpublished" && !d.isPublished);
+      return matchesSearch && matchesFilter;
+    });
+  }, [dishes, search, filter]);
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
+    <div className="min-h-screen flex flex-col bg-[#fafbfc]">
+      {/* Toast config */}
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            borderRadius: "12px",
+            fontSize: "14px",
+            fontWeight: "500",
+            padding: "12px 16px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.1)",
+          },
+        }}
+      />
+
+      {/* Modals */}
+      <OnboardingModal show={showOnboarding} onClose={() => setShowOnboarding(false)} />
+      <DishDetailModal
+        dish={liveDish}
+        isOpen={!!selectedDish}
+        onClose={() => setSelectedDish(null)}
+        onToggle={handleToggle}
+        isToggling={selectedDish ? togglingIds.has(selectedDish.dishId) : false}
+      />
+
+      {/* Navbar */}
+      <Navbar onShowOnboarding={() => setShowOnboarding(true)} />
+
+      {/* Main content */}
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
+
+        {/* Page header */}
+        <div className="mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">
+            Dish Management
+          </h1>
+          <p className="text-gray-500 text-sm mt-2 max-w-lg">
+            Manage the visibility of dishes across the platform. Click any dish to view details and toggle its publish status. Changes sync in real time.
           </p>
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
 
-      <div className="ticks"></div>
+        {/* Stats row */}
+        {!loading && !error && (
+          <div className="mb-8">
+            <StatsBar dishes={dishes} />
+          </div>
+        )}
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+        {/* Filters */}
+        {!loading && !error && (
+          <div className="mb-8">
+            <FilterBar
+              search={search}
+              onSearch={setSearch}
+              filter={filter}
+              onFilter={setFilter}
+            />
+          </div>
+        )}
+
+        {/* Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          {loading ? (
+            Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)
+          ) : error ? (
+            <ErrorBanner message={error} onRetry={reload} />
+          ) : visibleDishes.length === 0 ? (
+            <EmptyState
+              message={search ? `No dishes matching "${search}"` : "No dishes in this category."}
+            />
+          ) : (
+            visibleDishes.map((dish, i) => (
+              <div key={dish.dishId} className={`stagger-${(i % 12) + 1}`}>
+                <DishCard
+                  dish={dish}
+                  onClick={() => setSelectedDish(dish)}
+                />
+              </div>
+            ))
+          )}
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      </main>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      {/* Footer */}
+      <Footer />
+    </div>
+  );
 }
-
-export default App
